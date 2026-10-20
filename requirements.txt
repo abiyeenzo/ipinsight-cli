@@ -1,0 +1,2 @@
+# Dépendance d'exécution (licence MIT)
+rich>=13.7,<16

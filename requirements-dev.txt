@@ -1,0 +1,3 @@
+-r requirements.txt
+# Tests (licence MIT)
+pytest>=8.0
