@@ -26,6 +26,10 @@ Le projet n'a pas été conçu, et ne doit pas être détourné, pour :
 
 Une adresse IP identifie un point d'un réseau, pas une personne. La position estimée correspond souvent à l'infrastructure du fournisseur d'accès, peut être éloignée de l'utilisateur réel, et n'a aucune valeur de preuve. Le lien cartographique affiche un point associé aux coordonnées estimées, **pas nécessairement la position physique de l'utilisateur**.
 
+## Suivi et localisation GPS
+
+Une adresse IP ne permet pas de suivre les déplacements d'une personne en temps réel. La localisation GPS d'un appareil exige le consentement explicite et éclairé de son utilisateur et les autorisations nécessaires ; elle n'est pas implémentée dans cet outil (voir `GEOLOCATION_METHOD.md`, section 8). Aucun suivi dissimulé n'est accepté dans le projet.
+
 ## Indicateurs VPN / proxy / Tor
 
 Les résultats sont **indicatifs**. Une absence d'indicateur ne prouve pas l'absence d'anonymisation ; une détection peut être erronée.

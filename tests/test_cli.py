@@ -35,7 +35,7 @@ def test_help(capsys):
 def test_version(capsys):
     assert cli.main(["--version"]) == 0
     out = capsys.readouterr().out
-    assert "IPInsight CLI 1.0.0" in out and "@abiyeenzo" in out
+    assert "IPInsight CLI 1.1.0" in out and "@abiyeenzo" in out
 
 
 def test_disclaimer_option(capsys):

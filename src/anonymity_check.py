@@ -1,4 +1,4 @@
-"""Indicateurs d'anonymisation réseau (VPN, proxy, Tor, hébergement) — résultats indicatifs.
+"""Indicateurs d'anonymisation réseau (VPN, proxy, Tor, hébergement), résultats indicatifs.
 
 Sources gratuites, sans clé obligatoire :
   * ipapi.is (champs is_vpn / is_proxy / is_tor / is_datacenter) ;
@@ -12,12 +12,11 @@ from __future__ import annotations
 import ipaddress
 from collections.abc import Callable
 from typing import Any
-from urllib.parse import quote
 
+from .geolocation import IPAPI_KEY_ENV, ipapi_url
 from .http_client import ProviderError, get_json, get_text
 from .models import AnonymityResult
 
-IPAPI_IS_URL = "https://api.ipapi.is/?q="
 TOR_EXIT_LIST_URL = "https://check.torproject.org/torbulkexitlist"
 
 JsonFetcher = Callable[[str, float], dict[str, Any]]
@@ -25,8 +24,10 @@ TextFetcher = Callable[[str, float], str]
 
 
 def _flag(data: dict[str, Any], key: str) -> bool | None:
-    value = data.get(key)
-    return value if isinstance(value, bool) else None
+    if key not in data or data[key] is None:
+        return None
+    # Le fournisseur precise qu'un enregistrement VPN peut contenir une valeur « truthy » autre que true.
+    return bool(data[key])
 
 
 def _merge(*values: bool | None) -> bool | None:
@@ -64,7 +65,7 @@ def check(
 
     api_vpn = api_proxy = api_tor = api_hosting = None
     try:
-        data = fetch_json(IPAPI_IS_URL + quote(normalized, safe=":"), timeout)
+        data = fetch_json(ipapi_url(normalized), timeout)
         if "error" in data:
             raise ProviderError(str(data["error"]))
         api_vpn = _flag(data, "is_vpn")
@@ -74,7 +75,10 @@ def check(
         if any(v is not None for v in (api_vpn, api_proxy, api_tor, api_hosting)):
             result.sources.append("ipapi.is")
         else:
-            result.errors.append("ipapi.is : réponse sans indicateurs exploitables.")
+            result.errors.append(
+                "ipapi.is : réponse sans indicateurs VPN/proxy/Tor/hébergement "
+                f"(sans clé API, le fournisseur ne les renvoie pas ; clé gratuite facultative : variable {IPAPI_KEY_ENV})."
+            )
     except ProviderError as exc:
         result.errors.append(f"ipapi.is : {exc}")
 

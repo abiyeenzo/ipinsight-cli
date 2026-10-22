@@ -46,7 +46,7 @@ def test_json_contains_required_fields(geo_payload):
     assert data["accuracy_radius_km"] is None
     assert data["vpn_detected"] is None  # absence d'indicateur != absence de VPN
     assert data["anonymity_status"] == "no_indicator_found"
-    assert data["source"]["geolocation"] == "ipwho.is"
+    assert data["source"]["geolocation"] == ["ipwho.is"]
     assert data["timestamp"].endswith("+00:00")
     assert any("approximative" in item for item in data["limitations"])
 
@@ -80,7 +80,7 @@ def test_json_vpn_flag_true(geo_payload):
 def test_terminal_render_sections(geo_payload):
     text = " ".join(_render(_report(geo_payload)).split())  # insensible aux retours à la ligne
     for fragment in ("Localisation estimée", "Mountain View", "AS15169", "Google Maps", "pas un GPS",
-                     "inconnu (non fourni)", "non nécessairement", "Aucun indicateur trouvé dans la source consultée"):
+                     "Rayon d'incertitude : inconnu", "non nécessairement", "Aucun indicateur trouvé dans la source consultée"):
         assert fragment in text
     assert "\x1b[" not in text  # mode sans couleur
 

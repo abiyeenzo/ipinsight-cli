@@ -1,4 +1,4 @@
-"""Rendu terminal (Rich) et sérialisation JSON."""
+"""Rendu terminal (Rich) et serialisation JSON."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from .models import (
     STATUS_INDICATORS,
     STATUS_INDETERMINATE,
     STATUS_NO_INDICATOR,
+    GeoResult,
     IPReport,
 )
 
@@ -29,9 +30,17 @@ BANNER = r"""
 
 NOT_AVAILABLE = "non disponible"
 
+STATUS_TEXT = {
+    "no_data": "Aucune coordonnée exploitable.",
+    "single_source": "Une seule source : aucune comparaison possible.",
+    "concordant": "Sources concordantes (écart modéré).",
+    "divergent": "Sources divergentes : prudence.",
+    "contradictory": "Sources contradictoires : aucune position fiable ne peut être choisie.",
+}
+
 
 def make_console(no_color: bool = False, stderr: bool = False) -> Console:
-    """Crée une console ; ``no_color`` désactive couleurs et styles."""
+    """Cree une console ; ``no_color`` desactive couleurs et styles."""
     if no_color:
         return Console(no_color=True, color_system=None, highlight=False, stderr=stderr)
     return Console(highlight=False, stderr=stderr)
@@ -71,64 +80,199 @@ def _section(title: str, rows: list[tuple[str, object]]) -> Table:
     return table
 
 
+def _print_url(console: Console, label: str, url: str) -> None:
+    """Affiche une URL sur une ligne logique unique : Rich n'y insere aucun retour a la ligne."""
+    console.print(f"  {label} :", style="bold", markup=False)
+    console.print(f"  {url}", markup=False, soft_wrap=True)
+
+
+def _place(estimate: GeoResult) -> str:
+    parts = [estimate.city, estimate.region, estimate.country_code or estimate.country]
+    return ", ".join(p for p in parts if p) or NOT_AVAILABLE
+
+
+def _coords(estimate: GeoResult) -> str:
+    if estimate.point is None:
+        return NOT_AVAILABLE
+    return f"{estimate.latitude:.6f}, {estimate.longitude:.6f}"
+
+
+def _radius(estimate: GeoResult) -> str:
+    return f"{estimate.accuracy_radius_km:g} km" if estimate.accuracy_radius_km is not None else "inconnu"
+
+
+def _render_estimates(console: Console, report: IPReport) -> None:
+    table = Table(title="Estimations par source", title_justify="left", pad_edge=False)
+    for column in ("Source", "Lieu estimé", "Latitude, longitude", "Rayon", "Base du"):
+        table.add_column(column, overflow="fold", no_wrap=column == "Latitude, longitude")
+    for estimate in report.estimates:
+        table.add_row(
+            estimate.source,
+            _place(estimate),
+            _coords(estimate),
+            _radius(estimate),
+            _value(estimate.database_date) if estimate.kind == "local" else "service en ligne",
+        )
+    console.print(table)
+    for estimate in report.estimates:
+        for issue in estimate.issues:
+            if issue.severity in ("error", "warning"):
+                console.print(f"  [{estimate.source}] {issue.message}", style="yellow", markup=False)
+
+
+def _render_comparison(console: Console, report: IPReport) -> None:
+    comparison = report.comparison
+    if comparison is None:
+        return
+    console.print("Comparaison des sources", style="bold", markup=False)
+    kind = {"concordant": "ok", "single_source": "warn", "divergent": "warn"}.get(comparison.status, "warn")
+    if comparison.status == "contradictory":
+        kind = "err"
+    print_status(console, kind, STATUS_TEXT[comparison.status])
+    if comparison.max_divergence_km is not None:
+        console.print(f"  Écart maximal entre sources : {comparison.max_divergence_km:.1f} km", markup=False)
+    for pair in comparison.pairs:
+        km = "n/d" if pair.distance_km is None else f"{pair.distance_km:.1f} km"
+        console.print(f"  {pair.source_a} / {pair.source_b} : {km}", markup=False)
+    for note in comparison.notes:
+        console.print(f"  - {note}", style="dim", markup=False)
+    confidence = comparison.confidence
+    console.print(
+        f"  Confiance (qualitative, pas une probabilité) : {confidence.label}", style="bold", markup=False
+    )
+    for line in confidence.explanation:
+        console.print(f"    - {line}", style="dim", markup=False)
+
+
+def _render_location(console: Console, report: IPReport) -> None:
+    location = report.location
+    if location is None:
+        console.print(_section("Localisation estimée", [("Position retenue", "aucune (sources contradictoires)")]))
+        return
+    rows: list[tuple[str, object]] = [
+        ("Pays", f"{location.country} ({location.country_code})" if location.country and location.country_code else location.country),
+        ("Région", location.region),
+        ("Ville", location.city),
+        ("Fuseau horaire", report.network.timezone if report.network else None),
+        ("Source retenue", location.source),
+    ]
+    console.print(_section("Localisation estimée (retenue par IPInsight parmi les sources)", rows))
+
+
+def _render_map(console: Console, report: IPReport) -> None:
+    links, location = report.links, report.location
+    if links is None or location is None:
+        reason = "sources contradictoires" if report.comparison and report.comparison.status == "contradictory" else "coordonnées non fournies"
+        print_status(console, "warn", f"Aucun lien cartographique principal : {reason}.")
+        _render_per_source_links(console, report)
+        return
+    console.print("Coordonnées estimées (approximatives, pas un GPS)", style="bold", markup=False)
+    console.print(f"  Latitude : {links.lat_text}   Longitude : {links.lon_text}", markup=False)
+    console.print(f"  Rayon d'incertitude : {_radius(location)}", markup=False)
+    console.print(f"  À coller dans une carte : {links.plain}", markup=False, soft_wrap=True)
+    _print_url(console, "Google Maps", links.google)
+    _print_url(console, "OpenStreetMap", links.osm)
+    console.print(f"  Zoom identique ({links.zoom}) et mêmes valeurs dans les deux liens.", style="dim", markup=False)
+    console.print(f"  {MAPS_DISCLAIMER}", style="dim", markup=False)
+
+
+def _render_per_source_links(console: Console, report: IPReport) -> None:
+    """Sources en desaccord : un lien par source, pour comparer sans en privilegier une."""
+    from . import maps
+
+    shown = False
+    for estimate in report.estimates:
+        links = maps.build_links(
+            estimate.latitude, estimate.longitude, zoom=maps.zoom_for_radius(estimate.accuracy_radius_km)
+        )
+        if links is None:
+            continue
+        if not shown:
+            console.print("Liens par source (à comparer, aucune n'est privilégiée)", style="bold", markup=False)
+            shown = True
+        console.print(f"  {estimate.source} ({links.plain})", markup=False, soft_wrap=True)
+        console.print(f"  {links.google}", markup=False, soft_wrap=True)
+        console.print(f"  {links.osm}", markup=False, soft_wrap=True)
+
+
+def _render_reverse_geocode(console: Console, report: IPReport) -> None:
+    rg = report.reverse_geocode
+    if rg is None:
+        return
+    console.print()
+    rows: list[tuple[str, object]] = [
+        ("Pays", rg.country), ("Région", rg.state), ("Département / comté", rg.county),
+        ("Ville", rg.city), ("Quartier", rg.neighbourhood),
+    ]
+    console.print(_section(f"Contexte autour du point estimé ({rg.source}, zoom {rg.zoom})", rows))
+    for note in rg.notes:
+        console.print(f"  - {note}", style="dim", markup=False)
+    console.print(f"  {rg.attribution}", style="dim", markup=False)
+
+
 def render_report(console: Console, report: IPReport) -> None:
-    """Affiche le rapport organisé par catégories."""
+    """Affiche le rapport organise par categories."""
     console.print(_section("Adresse", [("IP", report.ip), ("Type", report.scope_description)]))
-    geo = report.geo
-    if geo is None:
+    if report.geo is None and not report.estimates and report.scope != "public":
         print_status(console, "warn", "Aucune géolocalisation : adresse non publique, aucune requête effectuée.")
         _render_limitations(console, report)
         return
 
-    place = [
-        ("Pays", f"{geo.country} ({geo.country_code})" if geo.country and geo.country_code else geo.country),
-        ("Région", geo.region),
-        ("Ville", geo.city),
-        ("Fuseau horaire", geo.timezone),
-    ]
     console.print()
-    console.print(_section("Localisation estimée", place))
-
-    console.print()
-    console.print(_section("Réseau", [
-        ("FAI (ISP)", geo.isp),
-        ("Organisation", geo.organization),
-        ("ASN", f"AS{geo.asn}" if geo.asn is not None else None),
-        ("Domaine", geo.domain),
-        ("DNS inverse", report.reverse_dns),
-    ]))
-
-    console.print()
-    if geo.latitude is None or geo.longitude is None:
-        print_status(console, "warn", "Coordonnées non fournies par la source.")
+    if report.estimates:
+        _render_location(console, report)
+        console.print()
+        _render_estimates(console, report)
+        console.print()
+        _render_comparison(console, report)
+        console.print()
+        net = report.network
+        if net is not None:
+            console.print(_section("Réseau", [
+                ("FAI (ISP)", net.isp),
+                ("Organisation", net.organization),
+                ("ASN", f"AS{net.asn}" if net.asn is not None else None),
+                ("Domaine", net.domain),
+                ("DNS inverse", report.reverse_dns),
+            ]))
+            console.print()
+        _render_map(console, report)
+        _render_reverse_geocode(console, report)
     else:
-        radius = f"{geo.accuracy_radius_km} km" if geo.accuracy_radius_km is not None else "inconnu (non fourni)"
-        console.print(_section("Coordonnées estimées (approximatives, pas un GPS)", [
-            ("Latitude", geo.latitude),
-            ("Longitude", geo.longitude),
-            ("Rayon d'incertitude", radius),
-            ("Google Maps", report.maps_url),
-            ("OpenStreetMap", report.osm_url),
-        ]))
-        console.print(f"  {MAPS_DISCLAIMER}", style="dim", markup=False)
-
+        print_status(console, "warn", "Aucune estimation disponible.")
     console.print()
     _render_anonymity(console, report)
+    _render_source_errors(console, report)
     _render_limitations(console, report)
-    console.print(f"\n  Source : {geo.source} — {report.timestamp}", style="dim", markup=False)
+    names = ", ".join(e.source for e in report.estimates) or NOT_AVAILABLE
+    console.print(f"\n  Sources : {names} - {report.timestamp}", style="dim", markup=False)
 
 
 def _render_anonymity(console: Console, report: IPReport) -> None:
     console.print("Indicateurs d'anonymisation (indicatif)", style="bold", markup=False)
     anon = report.anonymity
     if anon is None:
-        console.print("  Analyse non effectuée (--no-anonymity).", markup=False)
+        reason = "mode hors ligne" if report.offline else "--no-anonymity"
+        console.print(f"  Analyse non effectuée ({reason}).", markup=False)
         return
     kind = {STATUS_INDICATORS: "warn", STATUS_NO_INDICATOR: "ok", STATUS_INDETERMINATE: "warn"}[anon.status]
     for line in anon.summary_lines():
         print_status(console, kind, line)
+    if anon.has_indicator:
+        console.print(
+            "  La position estimée peut être celle d'un serveur intermédiaire, pas celle de l'appareil d'origine.",
+            style="yellow", markup=False,
+        )
     for error in anon.errors:
         console.print(f"  {error}", style="dim", markup=False)
+
+
+def _render_source_errors(console: Console, report: IPReport) -> None:
+    if not report.source_errors:
+        return
+    console.print("\nSources indisponibles ou incomplètes", style="bold", markup=False)
+    for item in report.source_errors:
+        console.print(f"  - {item}", style="dim", markup=False)
 
 
 def _render_limitations(console: Console, report: IPReport) -> None:

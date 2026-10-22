@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from rich.console import Console
 
 from . import SIGNATURE, __version__
-from . import analysis, disclaimer, maps, output
+from . import analysis, disclaimer, local_db, maps, output
 from .http_client import (
     NetworkUnavailableError,
     ProviderError,
@@ -30,6 +30,8 @@ EPILOG = (
     "  python main.py --ip 8.8.8.8\n"
     "  python main.py --ip 8.8.8.8 --json\n"
     "  python main.py --self\n"
+    "  python main.py --ip 8.8.8.8 --mmdb dbip-city-lite.mmdb --reverse-geocode\n"
+    "  python main.py --ip 8.8.8.8 --offline --mmdb dbip-city-lite.mmdb\n"
     "  python main.py            (mode interactif dans un terminal)\n\n"
     "Codes de sortie : 0 succès, 1 erreur de source/réseau, 2 entrée invalide, "
     "3 adresse non publique, 130 interruption.\n\n" + SIGNATURE
@@ -39,7 +41,7 @@ EPILOG = (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ipinsight",
-        description="IPInsight CLI — analyse informative d'une adresse IP publique "
+        description="IPInsight CLI : analyse informative d'une adresse IP publique "
         "(cybersécurité défensive, administration réseau, audits autorisés, apprentissage).",
         epilog=EPILOG,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -56,6 +58,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-anonymity", action="store_true",
                         help="ne pas interroger les sources VPN/proxy/Tor (moins de requêtes externes)")
     parser.add_argument("--rdns", action="store_true", help="ajouter une résolution DNS inverse (via votre résolveur)")
+    parser.add_argument("--mmdb", action="append", default=[], metavar="FICHIER",
+                        help="base locale .mmdb (répétable ; variable IPINSIGHT_MMDB acceptée). "
+                        "Compare avec les sources en ligne ou fonctionne hors ligne")
+    parser.add_argument("--offline", action="store_true",
+                        help="aucune requête réseau : utilise uniquement les bases --mmdb")
+    parser.add_argument("--reverse-geocode", action="store_true",
+                        help="géocodage inverse facultatif du point estimé (Nominatim/OpenStreetMap, "
+                        "envoie les coordonnées estimées)")
     parser.add_argument("--open-map", action="store_true", help="ouvrir le lien Google Maps dans le navigateur")
     parser.add_argument("--copy-map", action="store_true", help="copier le lien Google Maps dans le presse-papiers")
     parser.add_argument("--timeout", type=float, default=8.0, metavar="SECONDES",
@@ -75,13 +85,21 @@ def _error_exit_info(exc: Exception) -> tuple[str, str]:
     return "provider_error", f"Erreur du fournisseur : {exc}"
 
 
-def _run_analysis(target: str | None, args: argparse.Namespace, console: Console) -> int:
+def _run_analysis(
+    target: str | None,
+    args: argparse.Namespace,
+    console: Console,
+    databases: Sequence[local_db.LocalDatabase] = (),
+) -> int:
     try:
         report = analysis.analyze(
             target,
             timeout=args.timeout,
             check_anonymity=not args.no_anonymity,
             with_reverse_dns=args.rdns,
+            reverse_geocode=args.reverse_geocode,
+            databases=databases,
+            offline=args.offline,
         )
     except InvalidIPError as exc:
         if args.as_json:
@@ -133,7 +151,7 @@ def _maybe_show_first_run_warning(args: argparse.Namespace) -> None:
     disclaimer.mark_shown()
 
 
-def _interactive(args: argparse.Namespace, console: Console) -> int:
+def _interactive(args: argparse.Namespace, console: Console, databases: Sequence[local_db.LocalDatabase]) -> int:
     output.print_banner(console)
     console.print("Commandes : <adresse IP> | self | disclaimer | help | quit\n", markup=False)
     while True:
@@ -151,9 +169,9 @@ def _interactive(args: argparse.Namespace, console: Console) -> int:
         elif lowered == "disclaimer":
             output.print_warning_text(console)
         elif lowered == "self":
-            _run_analysis(None, args, console)
+            _run_analysis(None, args, console, databases)
         else:
-            _run_analysis(line, args, console)
+            _run_analysis(line, args, console, databases)
         console.print()
 
 
@@ -179,11 +197,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_USAGE
 
         _maybe_show_first_run_warning(args)
-        if interactive:
-            return _interactive(args, console)
-        if not args.as_json:
-            output.print_banner(console)
-        return _run_analysis(args.ip if args.ip else None, args, console)
+        databases, db_errors = local_db.open_databases([*args.mmdb, *local_db.paths_from_environment()])
+        try:
+            for message in db_errors:
+                if args.as_json:
+                    print(f"Base locale ignorée : {message}", file=sys.stderr)
+                else:
+                    output.print_status(console, "warn", f"Base locale ignorée : {message}")
+            if args.offline and not databases:
+                message = "--offline nécessite au moins une base locale valide (--mmdb FICHIER)."
+                if args.as_json:
+                    print(output.error_json(message, "no_local_database", args.ip))
+                else:
+                    output.print_status(console, "err", message)
+                return EXIT_USAGE
+            if interactive:
+                return _interactive(args, console, databases)
+            if not args.as_json:
+                output.print_banner(console)
+            return _run_analysis(args.ip if args.ip else None, args, console, databases)
+        finally:
+            local_db.close_all(databases)
     except KeyboardInterrupt:
         print("\nInterrompu par l'utilisateur.", file=sys.stderr)
         return EXIT_INTERRUPTED

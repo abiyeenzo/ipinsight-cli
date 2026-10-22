@@ -4,7 +4,7 @@ from src import maps
 
 
 def test_google_maps_url_format():
-    assert maps.build_google_maps_url(37.386, -122.0838) == "https://www.google.com/maps?q=37.386000,-122.083800"
+    assert maps.build_google_maps_url(37.386, -122.0838) == "https://www.google.com/maps?q=37.386000,-122.083800&z=10"
 
 
 def test_osm_url_format():

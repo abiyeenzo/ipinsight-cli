@@ -76,7 +76,7 @@ def test_all_sources_down_is_indeterminate():
 def test_response_without_flags_is_indeterminate():
     result = anonymity_check.check("8.8.8.8", fetch_json=_json({"ip": "8.8.8.8"}), fetch_text=_fail(NetworkUnavailableError("off")))
     assert result.status == STATUS_INDETERMINATE
-    assert any("indicateurs exploitables" in e for e in result.errors)
+    assert any("indicateurs VPN" in e for e in result.errors)
 
 
 def test_provider_error_field():

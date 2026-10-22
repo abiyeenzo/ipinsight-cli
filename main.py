@@ -1,6 +1,6 @@
 """Point d'entrée : python main.py --help
 
-IPInsight CLI — Developed by Abiye Enzo (@abiyeenzo)
+IPInsight CLI - Developed by Abiye Enzo (@abiyeenzo)
 """
 
 import sys
