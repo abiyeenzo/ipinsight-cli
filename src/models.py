@@ -224,6 +224,45 @@ class ReverseGeocode:
         }
 
 
+@dataclass
+class RDAPInfo:
+    """Donnees d'enregistrement issues des registres Internet regionaux (RDAP / RFC 9083)."""
+
+    source: str
+    handle: str | None = None
+    name: str | None = None
+    cidr: str | None = None
+    range_text: str | None = None
+    country: str | None = None
+    registry: str | None = None
+    registrant: str | None = None
+    abuse_email: str | None = None
+    allocation_type: str | None = None
+    registration_date: str | None = None
+    last_changed: str | None = None
+    country_matches_estimate: bool | None = None
+    notes: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "source": self.source,
+            "handle": self.handle,
+            "name": self.name,
+            "cidr": self.cidr,
+            "range": self.range_text,
+            "country": self.country,
+            "registry": self.registry,
+            "registrant": self.registrant,
+            "abuse_email": self.abuse_email,
+            "allocation_type": self.allocation_type,
+            "registration_date": self.registration_date,
+            "last_changed": self.last_changed,
+            "country_matches_estimate": self.country_matches_estimate,
+            "notes": list(self.notes),
+        }
+
+
+
 def _estimate_dict(estimate: GeoResult) -> dict[str, Any]:
     links = maps.build_links(
         estimate.latitude, estimate.longitude, zoom=maps.zoom_for_radius(estimate.accuracy_radius_km)
@@ -263,6 +302,7 @@ class IPReport:
     links: maps.MapLinks | None = None
     reverse_dns: str | None = None
     reverse_geocode: ReverseGeocode | None = None
+    rdap: RDAPInfo | None = None
     source_errors: list[str] = field(default_factory=list)
     limitations: list[str] = field(default_factory=list)
     offline: bool = False
@@ -310,6 +350,7 @@ class IPReport:
             "comparison": comparison.to_dict() if comparison else None,
             "estimates": [_estimate_dict(e) for e in self.estimates],
             "reverse_geocode": self.reverse_geocode.to_dict() if self.reverse_geocode else None,
+            "rdap": self.rdap.to_dict() if self.rdap else None,
             "source": {
                 "geolocation": source_names,
                 "position_selected_from": comparison.reference_source if comparison else None,

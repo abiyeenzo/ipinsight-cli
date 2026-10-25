@@ -14,6 +14,7 @@ IPInsight CLI n'embarque aucune base de données IP. Il interroge des services t
 | Base locale GeoLite2 (.mmdb) | Fichier local | `maxmind` | voir ci-dessous | **oui** | compte + licence *(vérifié)* | oui (`accuracy_radius`) |
 | Tor Project (liste des nœuds de sortie) | Liste publique | n/a | continue | non | non | n/a |
 | Nominatim (géocodage inverse) | Service en ligne, facultatif | n/a | continue | non | non | n/a |
+| RDAP (`rdap.org` / registres RIR) | Service en ligne, facultatif | n/a | continue | non | non | n/a |
 
 ## Requêtes externes et données envoyées
 
@@ -23,6 +24,7 @@ IPInsight CLI n'embarque aucune base de données IP. Il interroge des services t
 | `api.ipapi.is` | sauf `--offline` | l'adresse IP analysée (et votre clé si vous en définissez une) ; **une seule requête** sert à la localisation et à l'anonymat |
 | `check.torproject.org` | sauf `--offline` et `--no-anonymity` | rien (téléchargement de la liste publique) |
 | `nominatim.openstreetmap.org` | seulement avec `--reverse-geocode` | les **coordonnées estimées** du point retenu (pas l'adresse IP) |
+| `rdap.org` (et RIR compétent) | seulement avec `--rdap` | l'adresse IP analysée (requête HTTPS standard RFC 7480) |
 | Résolveur DNS système | seulement avec `--rdns` | l'adresse IP analysée (requête PTR) |
 
 Toutes les requêtes sont en HTTPS avec validation TLS, espacées, avec un `User-Agent` identifiant l'application. Rien n'est envoyé à l'auteur du projet et aucune adresse analysée n'est stockée.
@@ -50,6 +52,13 @@ IPInsight CLI n'automatise pas le téléchargement et ne redistribue aucune base
 
 ### Nominatim (OpenStreetMap) *(vérifié)*
 Politique : au maximum **1 requête par seconde** ; `User-Agent` identifiant l'application ; attribution « © OpenStreetMap contributors » (données ODbL) ; mise en cache des résultats ; requêtes systématiques ou en grille interdites ; ne pas soumettre de données personnelles ; l'application doit pouvoir être désactivée à la demande de l'OSMF. IPInsight CLI : option désactivée par défaut, 1,1 s minimum entre deux requêtes, cache en mémoire, une seule requête par analyse, attribution affichée. Le service public n'est pas prévu pour un usage intensif : pour du volume, installez votre propre instance.
+
+### RDAP (`rdap.org` et registres Internet régionaux) *(vérifié)*
+Le protocole RDAP (RFC 7480 / RFC 9083) est le successeur normalisé de WHOIS maintenu par l'IANA et les cinq registres régionaux (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC). Activé uniquement avec `--rdap` :
+- Requête HTTPS vers `https://rdap.org/ip/<adresse>`, qui redirige vers le RIR compétent.
+- Aucune clé requise ; mise en cache en mémoire pendant la session.
+- Données extraites : bloc CIDR, plage d'adresses, nom et identifiant (`handle`) du réseau, registre RIR, titulaire déclaré, adresse e-mail de signalement d'abus (`abuse`), pays d'enregistrement administratif et dates d'allocation / mise à jour.
+- Le pays RDAP désigne le siège administratif de l'organisation titulaire et non l'emplacement physique du routeur.
 
 ## Comportement en cas de problème
 

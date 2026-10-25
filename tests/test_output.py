@@ -127,3 +127,35 @@ def test_error_json():
 
 def test_anonymity_default_is_indeterminate():
     assert AnonymityResult().summary_lines() == ["Indéterminé : données insuffisantes"]
+
+
+def test_render_rdap_section_and_write_report_file(geo_payload, tmp_path):
+    from src.models import RDAPInfo
+
+    report = _report(geo_payload)
+    report.rdap = RDAPInfo(
+        source="RDAP (registres RIR)",
+        handle="NET-8-8-8-0-2",
+        name="GOGL",
+        cidr="8.8.8.0/24",
+        range_text="8.8.8.0 - 8.8.8.255",
+        country="US",
+        registry="ARIN",
+        registrant="Google LLC",
+        abuse_email="network-abuse@google.com",
+        registration_date="2014-03-14",
+        last_changed="2023-12-28",
+        notes=["Note administrative RDAP."],
+    )
+    rendered = _render(report)
+    assert "Enregistrement RDAP" in rendered
+    assert "network-abuse@google.com" in rendered
+    assert "2014-03-14 (MAJ 2023-12-28)" in rendered
+
+    json_file = output.write_report_file(report, tmp_path / "out.json")
+    assert json.loads(json_file.read_text(encoding="utf-8"))["rdap"]["cidr"] == "8.8.8.0/24"
+
+    txt_file = output.write_report_file(report, tmp_path / "out.txt")
+    txt_content = txt_file.read_text(encoding="utf-8")
+    assert "IPInsight CLI" in txt_content and "NET-8-8-8-0-2" in txt_content
+

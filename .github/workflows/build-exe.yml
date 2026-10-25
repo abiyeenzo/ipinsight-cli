@@ -1,0 +1,103 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Validate test suite
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies and run tests
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+          python -m pytest -q
+
+  build-exe:
+    name: Build ipinsight.exe (Windows x64)
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt "pyinstaller>=6.0"
+
+      - name: Build executable with PyInstaller
+        shell: pwsh
+        run: |
+          pyinstaller --clean --noconfirm ipinsight.spec
+          if (-not (Test-Path .\dist\ipinsight.exe)) {
+            throw "Executable dist\ipinsight.exe introuvable apres le build."
+          }
+
+      - name: Smoke test ipinsight.exe
+        shell: pwsh
+        run: |
+          .\dist\ipinsight.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "Echec de --version ($LASTEXITCODE)" }
+
+          .\dist\ipinsight.exe --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Echec de --help ($LASTEXITCODE)" }
+
+          .\dist\ipinsight.exe --disclaimer --no-color | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "Echec de --disclaimer ($LASTEXITCODE)" }
+
+          $jsonRaw = .\dist\ipinsight.exe --ip 192.168.1.1 --json
+          if ($LASTEXITCODE -ne 3) { throw "Code de sortie inattendu pour IP privee : $LASTEXITCODE" }
+          $parsed = $jsonRaw | ConvertFrom-Json
+          if ($parsed.ip_scope -ne "private") { throw "Contenu JSON inattendu : $jsonRaw" }
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash .\dist\ipinsight.exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  ipinsight.exe" | Out-File -FilePath .\dist\ipinsight.exe.sha256 -Encoding ascii
+          Get-Content .\dist\ipinsight.exe.sha256
+
+      - name: Upload ipinsight.exe artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ipinsight-windows-x64
+          path: |
+            dist/ipinsight.exe
+            dist/ipinsight.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release on tag
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ipinsight.exe
+            dist/ipinsight.exe.sha256
+          generate_release_notes: true

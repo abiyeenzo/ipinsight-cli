@@ -2,6 +2,15 @@
 
 Format inspiré de [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/) ; versionnage sémantique.
 
+## [1.2.0] - 2026-10-25
+
+### Ajouté
+- Consultation RDAP facultative (`--rdap`, RFC 7480 / RFC 9083 via `rdap.org` et les registres RIR ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC) : préfixe CIDR, plage d'adresses, handle, titulaire déclaré, contact d'abus (`abuse_email`), dates d'allocation et contrôle de cohérence administrative du pays.
+- Export direct du rapport vers un fichier (`-o` / `--output FICHIER`) en JSON structuré (si `--json` ou extension `.json`) ou en texte UTF-8 sans séquences ANSI.
+- Packaging standard PEP 621 (`pyproject.toml`) exposant le point d'entrée console `ipinsight`.
+- Spécification PyInstaller (`ipinsight.spec`) et workflows GitHub Actions (`.github/workflows/ci.yml` et `.github/workflows/build-exe.yml`) pour exécuter les tests multi-OS et compiler automatiquement l'exécutable Windows autonome `ipinsight.exe` avec somme de contrôle SHA-256.
+- Prise en charge UTF-8 dédiée aux exécutables autonomes sous Windows (`sys.frozen`).
+
 ## [1.1.0] - 2026-10-21
 
 ### Corrigé
