@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import io
 import json
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -210,6 +212,33 @@ def _render_reverse_geocode(console: Console, report: IPReport) -> None:
     console.print(f"  {rg.attribution}", style="dim", markup=False)
 
 
+def _render_rdap(console: Console, report: IPReport) -> None:
+    rdap = report.rdap
+    if rdap is None:
+        return
+    console.print()
+    rows: list[tuple[str, object]] = [
+        ("Registre (RIR)", rdap.registry),
+        ("Bloc / handle", rdap.handle),
+        ("Nom du réseau", rdap.name),
+        ("Préfixe CIDR", rdap.cidr),
+        ("Plage IP", rdap.range_text),
+        ("Titulaire déclaré", rdap.registrant),
+        ("Pays d'enregistrement", rdap.country),
+        ("Contact abus", rdap.abuse_email),
+        ("Allocation / MAJ", _rdap_dates(rdap.registration_date, rdap.last_changed)),
+    ]
+    console.print(_section(f"Enregistrement RDAP ({rdap.source})", rows))
+    for note in rdap.notes:
+        console.print(f"  - {note}", style="dim", markup=False)
+
+
+def _rdap_dates(registered: str | None, changed: str | None) -> str | None:
+    if registered and changed:
+        return f"{registered} (MAJ {changed})"
+    return registered or changed
+
+
 def render_report(console: Console, report: IPReport) -> None:
     """Affiche le rapport organise par categories."""
     console.print(_section("Adresse", [("IP", report.ip), ("Type", report.scope_description)]))
@@ -238,8 +267,10 @@ def render_report(console: Console, report: IPReport) -> None:
             console.print()
         _render_map(console, report)
         _render_reverse_geocode(console, report)
+        _render_rdap(console, report)
     else:
         print_status(console, "warn", "Aucune estimation disponible.")
+        _render_rdap(console, report)
     console.print()
     _render_anonymity(console, report)
     _render_source_errors(console, report)
@@ -289,3 +320,24 @@ def to_json(report: IPReport) -> str:
 
 def error_json(message: str, error_type: str, ip: str | None = None) -> str:
     return json.dumps({"ip": ip, "error": message, "error_type": error_type}, ensure_ascii=False, indent=2)
+
+
+def format_report_text(report: IPReport, *, width: int = 100) -> str:
+    """Genere le rapport complet en texte brut UTF-8 (sans codes ANSI)."""
+    buffer = io.StringIO()
+    console = Console(file=buffer, no_color=True, color_system=None, width=width, highlight=False)
+    print_banner(console)
+    render_report(console, report)
+    return buffer.getvalue()
+
+
+def write_report_file(report: IPReport, path: str | Path, *, as_json: bool = False) -> Path:
+    """Enregistre le rapport dans ``path`` (JSON si ``as_json`` ou extension ``.json``, sinon texte)."""
+    dest = Path(path)
+    use_json = as_json or dest.suffix.lower() == ".json"
+    content = (to_json(report) + "\n") if use_json else format_report_text(report)
+    if dest.parent and str(dest.parent) not in ("", "."):
+        dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(content, encoding="utf-8")
+    return dest
+

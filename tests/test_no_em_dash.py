@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 EM_DASH = chr(0x2014)  # U+2014, ecrit sans le caractere litteral
-SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git", ".venv", "venv"}
+SKIP_DIRS = {"__pycache__", ".pytest_cache", ".git", ".venv", "venv", "build", "dist", "ipinsight_cli.egg-info"}
 
 
 def test_no_em_dash_anywhere_in_project():

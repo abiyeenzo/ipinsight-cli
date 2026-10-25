@@ -35,7 +35,7 @@ def test_help(capsys):
 def test_version(capsys):
     assert cli.main(["--version"]) == 0
     out = capsys.readouterr().out
-    assert "IPInsight CLI 1.1.0" in out and "@abiyeenzo" in out
+    assert "IPInsight CLI 1.2.0" in out and "@abiyeenzo" in out
 
 
 def test_disclaimer_option(capsys):
@@ -168,3 +168,59 @@ def test_copy_and_open_map(fake_providers, monkeypatch, capsys):
     assert cli.main(["--ip", "8.8.8.8", "--no-color", "--copy-map", "--open-map"]) == 0
     out = capsys.readouterr().out
     assert "presse-papiers" in out and "Impossible d'ouvrir" in out
+
+
+def test_output_json_and_text_files(fake_providers, tmp_path, capsys):
+    json_dest = tmp_path / "sub" / "rapport.json"
+    assert cli.main(["--ip", "8.8.8.8", "--json", "-o", str(json_dest)]) == 0
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["ip"] == "8.8.8.8"
+    assert "Rapport enregistré" in captured.err
+    saved_json = json.loads(json_dest.read_text(encoding="utf-8"))
+    assert saved_json["ip"] == "8.8.8.8"
+
+    txt_dest = tmp_path / "rapport.txt"
+    assert cli.main(["--ip", "8.8.8.8", "--no-color", "--output", str(txt_dest)]) == 0
+    saved_txt = txt_dest.read_text(encoding="utf-8")
+    assert "Mountain View" in saved_txt and "\x1b[" not in saved_txt
+
+
+def test_output_write_failure_is_reported(fake_providers, tmp_path, capsys):
+    assert cli.main(["--ip", "8.8.8.8", "--no-color", "-o", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "Impossible d'enregistrer" in out
+
+
+def test_rdap_cli_flag(monkeypatch, geo_payload, capsys):
+    def fetch_json(url, _timeout):
+        if "rdap.org" in url:
+            return {"handle": "NET-8-8-8-0-2", "name": "GOGL", "country": "US", "port43": "whois.arin.net"}
+        if "ipwho.is" in url:
+            return geo_payload
+        return {"is_vpn": False, "is_proxy": False, "is_tor": False, "is_datacenter": False}
+
+    original = analysis.analyze
+    monkeypatch.setattr(
+        cli.analysis,
+        "analyze",
+        lambda t, **kw: original(t, fetch_json=fetch_json, fetch_text=lambda _u, _t: "", **kw),
+    )
+    assert cli.main(["--ip", "8.8.8.8", "--rdap", "--json"]) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["rdap"]["handle"] == "NET-8-8-8-0-2"
+    assert data["rdap"]["registry"] == "ARIN"
+
+
+def test_frozen_stdio_reconfiguration(monkeypatch):
+    calls = []
+
+    class DummyStream:
+        def reconfigure(self, **kwargs):
+            calls.append(kwargs)
+
+    monkeypatch.setattr(cli.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(cli.sys, "stdout", DummyStream())
+    monkeypatch.setattr(cli.sys, "stderr", DummyStream())
+    cli._configure_frozen_stdio()
+    assert len(calls) == 2 and all(c.get("encoding") == "utf-8" for c in calls)
+

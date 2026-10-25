@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ipinsight-cli"
+version = "1.2.0"
+description = "Analyse informative d'une adresse IP publique : geolocalisation multi-sources, RDAP, reseau et indicateurs d'anonymisation."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Abiye Enzo" },
+]
+keywords = ["ip", "geolocation", "network", "rdap", "mmdb", "security", "cli"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Networking",
+    "Topic :: Security",
+]
+dependencies = [
+    "rich>=13.7,<16",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pyinstaller>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/abiyeenzo/ipinsight-cli"
+Repository = "https://github.com/abiyeenzo/ipinsight-cli"
+
+[project.scripts]
+ipinsight = "src.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

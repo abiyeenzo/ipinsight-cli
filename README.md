@@ -2,7 +2,7 @@
 
 > Analyse informative d'une adresse IP publique : géolocalisation approximative comparée entre plusieurs sources, réseau (FAI / ASN) et indicateurs d'anonymisation. Pour la **cybersécurité défensive**, l'**administration réseau**, les **audits autorisés** et l'**apprentissage**.
 
-**IPInsight CLI - Developed by Abiye Enzo (@abiyeenzo)** · Licence MIT · Python 3.11+ · v1.1.0
+**IPInsight CLI - Developed by Abiye Enzo (@abiyeenzo)** · Licence MIT · Python 3.11+ · v1.2.0
 
 ---
 
@@ -29,9 +29,10 @@
 - **Validation des coordonnées** : valeurs invalides, absentes, inversion latitude/longitude, point (0, 0). Rien n'est corrigé silencieusement.
 - Liens **Google Maps** et **OpenStreetMap** construits à partir des mêmes valeurs et du même zoom (voir [le diagnostic](docs/GEOLOCATION_METHOD.md)).
 - **Géocodage inverse facultatif** (Nominatim) : contexte autour du point estimé, sans quartier ni rue déduits d'une estimation de ville.
+- **Consultation RDAP facultative** (`--rdap`, RFC 9083) : préfixe CIDR, plage IP, titulaire déclaré et contact d'abus auprès des registres Internet régionaux (ARIN, RIPE NCC, APNIC, LACNIC, AFRINIC).
 - **Mode hors ligne** avec vos bases locales ; lecteur `.mmdb` intégré, sans dépendance.
 - Indicateurs **indicatifs** de VPN, proxy, nœud de sortie Tor et hébergeur ; rappel permanent que la position peut être celle d'un serveur intermédiaire.
-- Mode `--self`, sortie terminal (Rich) ou **JSON**, `--no-color`, mode interactif.
+- Mode `--self`, sortie terminal (Rich) ou **JSON**, export direct vers fichier (`-o` / `--output`), `--no-color`, mode interactif, exécutable autonome Windows (`ipinsight.exe`).
 - Aucune télémétrie, aucun stockage des adresses analysées, aucune clé API obligatoire.
 
 Principes non négociables : une position IP **n'est jamais** présentée comme une position GPS ; les données absentes restent `null` ; l'absence d'indicateur VPN **ne prouve pas** l'absence de VPN ; une adresse IP **ne permet pas** de suivre un appareil en temps réel.
@@ -74,6 +75,16 @@ python main.py --help
 > Si l'activation est bloquée : `Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned`.
 > Sans UTF-8, les symboles sont remplacés par `[OK]` `[!]` `[x]` ; `--no-color` supprime les couleurs.
 
+### Exécutable autonome Windows (`ipinsight.exe`)
+
+Un binaire autonome `ipinsight.exe` (sans installation de Python requise sur le poste cible) est compilé automatiquement par le workflow GitHub Actions (`.github/workflows/build-exe.yml`) à chaque push sur `main` ou lors d'une release. Vous pouvez aussi le générer localement sous Windows :
+
+```powershell
+pip install -r requirements.txt "pyinstaller>=6.0"
+pyinstaller --clean --noconfirm ipinsight.spec
+.\dist\ipinsight.exe --help
+```
+
 ## Utilisation
 
 ```text
@@ -82,6 +93,7 @@ python main.py --version
 python main.py --ip 8.8.8.8
 python main.py --ip 2001:4860:4860::8888
 python main.py --ip 8.8.8.8 --json
+python main.py --ip 8.8.8.8 --rdap --rdns -o rapport.json        # RDAP + DNS inverse + export fichier
 python main.py --self
 python main.py --ip 8.8.8.8 --mmdb dbip-city-lite.mmdb          # compare avec une base locale
 python main.py --ip 8.8.8.8 --mmdb a.mmdb --mmdb b.mmdb          # plusieurs bases
@@ -97,9 +109,11 @@ python main.py --disclaimer                                      # avertissement
 | `--self` | Analyser l'IP publique de la machine (incompatible avec `--offline`) |
 | `-i`, `--interactive` | Mode interactif (adresse, `self`, `disclaimer`, `help`, `quit`) |
 | `--json` | Sortie JSON structurée (stdout = JSON uniquement) |
+| `-o`, `--output FICHIER` | Enregistrer le rapport dans un fichier (`.json` en JSON, sinon texte UTF-8) |
 | `--mmdb FICHIER` | Base locale `.mmdb`, répétable ; variable `IPINSIGHT_MMDB` acceptée |
 | `--offline` | Aucune requête réseau ; nécessite au moins un `--mmdb` valide |
 | `--reverse-geocode` | Géocodage inverse facultatif (envoie les **coordonnées estimées** à Nominatim) |
+| `--rdap` | Enregistrement officiel RDAP auprès des registres RIR (CIDR, titulaire, contact abus) |
 | `--no-anonymity` | Ne pas interroger les sources VPN/proxy/Tor |
 | `--rdns` | DNS inverse via **votre** résolveur système |
 | `--open-map` / `--copy-map` | Ouvrir / copier le lien Google Maps |
@@ -180,6 +194,7 @@ Extrait de la structure (valeurs d'exemple) :
       "maps_url": "...", "osm_url": "...", "issues": [] }
   ],
   "reverse_geocode": null,
+  "rdap": null,
   "source": { "geolocation": ["ipwho.is"], "position_selected_from": "ipwho.is", "network": {}, "anonymity": [] },
   "source_errors": [], "offline": false,
   "timestamp": "2026-10-21T08:00:00+00:00",
@@ -200,6 +215,7 @@ Extrait de la structure (valeurs d'exemple) :
 | `api.ipapi.is` | sauf `--offline` | l'adresse IP analysée (une seule requête pour localisation et anonymat) |
 | `check.torproject.org` | sauf `--offline` / `--no-anonymity` | rien (liste publique) |
 | `nominatim.openstreetmap.org` | seulement `--reverse-geocode` | les coordonnées estimées |
+| `rdap.org` (et RIR compétent) | seulement `--rdap` | l'adresse IP analysée |
 | Résolveur DNS | seulement `--rdns` | l'adresse IP analysée |
 
 Rien n'est envoyé à l'auteur, aucune adresse analysée n'est stockée, aucune clé n'est dans le code, HTTPS avec validation TLS, requêtes espacées, aucune commande système construite à partir d'une entrée utilisateur. Détails : [`docs/DATA_SOURCES.md`](docs/DATA_SOURCES.md).
@@ -229,9 +245,11 @@ Les tests n'effectuent **aucune requête réseau réelle** : réponses des fourn
 ```text
 ipinsight-cli/
 ├── main.py
+├── pyproject.toml · ipinsight.spec
 ├── requirements.txt / requirements-dev.txt
+├── .github/workflows/       # tests CI multi-OS et génération de ipinsight.exe
 ├── src/
-│   ├── cli.py               # arguments, modes, codes de sortie
+│   ├── cli.py               # arguments, modes, export fichier, codes de sortie
 │   ├── analysis.py          # orchestration multi-sources
 │   ├── validation.py        # validation et classification des IP
 │   ├── geolocation.py       # ipwho.is et ipapi.is
@@ -241,10 +259,11 @@ ipinsight-cli/
 │   ├── geo_math.py          # Haversine, distances, boîtes englobantes
 │   ├── comparison.py        # comparaison des sources et confiance
 │   ├── reverse_geocode.py   # géocodage inverse facultatif (Nominatim)
+│   ├── rdap.py              # consultation RDAP facultative (registres RIR)
 │   ├── maps.py              # liens cartographiques cohérents
 │   ├── anonymity_check.py   # VPN / proxy / Tor / hébergement
 │   ├── network_info.py      # DNS inverse optionnel
-│   ├── output.py            # rendu terminal et JSON
+│   ├── output.py            # rendu terminal, export fichier et JSON
 │   ├── disclaimer.py, http_client.py, models.py
 ├── tests/
 ├── docs/                    # DATA_SOURCES, GEOLOCATION_METHOD, LEGAL_AND_ETHICAL_USE

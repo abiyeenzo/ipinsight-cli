@@ -14,6 +14,7 @@ from . import (
     local_db,
     maps,
     network_info,
+    rdap as rdap_module,
     reverse_geocode as reverse_geocode_module,
 )
 from .http_client import ProviderError, ProviderResponseError, get_json, get_text
@@ -134,6 +135,7 @@ def analyze(
     timeout: float = 8.0,
     check_anonymity: bool = True,
     with_reverse_dns: bool = False,
+    with_rdap: bool = False,
     reverse_geocode: bool = False,
     databases: Sequence[local_db.LocalDatabase] = (),
     offline: bool = False,
@@ -232,6 +234,13 @@ def analyze(
             report.reverse_geocode = reverse_geocode_module.lookup(reference, timeout=timeout, fetch_json=fetch_json)
         except ProviderError as exc:
             errors.append(f"Géocodage inverse : {exc}")
+    if with_rdap and not offline:
+        try:
+            report.rdap = rdap_module.lookup(
+                check.address, estimate=location or primary, timeout=timeout, fetch_json=fetch_json
+            )
+        except ProviderError as exc:
+            errors.append(f"RDAP : {exc}")
     if with_reverse_dns and not offline:
         report.reverse_dns = network_info.reverse_dns(check.address, timeout=timeout)
     return report

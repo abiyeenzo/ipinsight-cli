@@ -29,6 +29,7 @@ EPILOG = (
     "Exemples :\n"
     "  python main.py --ip 8.8.8.8\n"
     "  python main.py --ip 8.8.8.8 --json\n"
+    "  python main.py --ip 8.8.8.8 --rdap --rdns -o rapport.json\n"
     "  python main.py --self\n"
     "  python main.py --ip 8.8.8.8 --mmdb dbip-city-lite.mmdb --reverse-geocode\n"
     "  python main.py --ip 8.8.8.8 --offline --mmdb dbip-city-lite.mmdb\n"
@@ -36,6 +37,19 @@ EPILOG = (
     "Codes de sortie : 0 succès, 1 erreur de source/réseau, 2 entrée invalide, "
     "3 adresse non publique, 130 interruption.\n\n" + SIGNATURE
 )
+
+
+def _configure_frozen_stdio() -> None:
+    """Garantit une sortie UTF-8 stable lorsque le binaire autonome (.exe) tourne sous Windows."""
+    if not getattr(sys, "frozen", False):
+        return
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except (OSError, ValueError):
+                pass
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -54,10 +68,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="analyser l'adresse IP publique de cette machine")
     target.add_argument("-i", "--interactive", action="store_true", help="forcer le mode interactif")
     parser.add_argument("--json", dest="as_json", action="store_true", help="sortie JSON structurée")
+    parser.add_argument("-o", "--output", metavar="FICHIER",
+                        help="enregistrer le rapport dans un fichier (.json en JSON, sinon texte UTF-8)")
     parser.add_argument("--no-color", action="store_true", help="désactiver couleurs et styles")
     parser.add_argument("--no-anonymity", action="store_true",
                         help="ne pas interroger les sources VPN/proxy/Tor (moins de requêtes externes)")
     parser.add_argument("--rdns", action="store_true", help="ajouter une résolution DNS inverse (via votre résolveur)")
+    parser.add_argument("--rdap", action="store_true",
+                        help="consulter l'enregistrement RDAP officiel des registres RIR (CIDR, titulaire, contact abus)")
     parser.add_argument("--mmdb", action="append", default=[], metavar="FICHIER",
                         help="base locale .mmdb (répétable ; variable IPINSIGHT_MMDB acceptée). "
                         "Compare avec les sources en ligne ou fonctionne hors ligne")
@@ -97,6 +115,7 @@ def _run_analysis(
             timeout=args.timeout,
             check_anonymity=not args.no_anonymity,
             with_reverse_dns=args.rdns,
+            with_rdap=args.rdap,
             reverse_geocode=args.reverse_geocode,
             databases=databases,
             offline=args.offline,
@@ -125,6 +144,12 @@ def _emit_report(report: IPReport, args: argparse.Namespace, console: Console) -
         print(output.to_json(report))
     else:
         output.render_report(console, report)
+    if args.output:
+        try:
+            dest = output.write_report_file(report, args.output, as_json=args.as_json)
+            _notice(args, console, "ok", f"Rapport enregistré dans {dest}.")
+        except OSError as exc:
+            _notice(args, console, "err", f"Impossible d'enregistrer le rapport : {exc}")
     if report.maps_url and args.copy_map:
         copied = maps.copy_to_clipboard(report.maps_url)
         _notice(args, console, "ok" if copied else "warn",
@@ -176,6 +201,7 @@ def _interactive(args: argparse.Namespace, console: Console, databases: Sequence
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    _configure_frozen_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
 
