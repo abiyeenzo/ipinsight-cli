@@ -3,7 +3,7 @@
 
 from PyInstaller.utils.hooks import collect_submodules
 
-hidden_imports = collect_submodules("rich._unicode_data")
+hidden_imports = collect_submodules("src") + collect_submodules("rich._unicode_data")
 
 a = Analysis(
     ["main.py"],
@@ -14,7 +14,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["tkinter", "unittest", "pydoc", "doctest", "sqlite3", "xmlrpc"],
+    excludes=["tkinter"],
     noarchive=False,
     optimize=0,
 )

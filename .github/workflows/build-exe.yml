@@ -60,6 +60,7 @@ jobs:
           }
 
       - name: Smoke test ipinsight.exe
+        shell: bash
         run: |
           python - << 'EOF'
           import json
