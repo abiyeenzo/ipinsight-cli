@@ -60,21 +60,59 @@ jobs:
           }
 
       - name: Smoke test ipinsight.exe
-        shell: pwsh
         run: |
-          .\dist\ipinsight.exe --version
-          if ($LASTEXITCODE -ne 0) { throw "Echec de --version ($LASTEXITCODE)" }
+          python - << 'EOF'
+          import json
+          import subprocess
+          import tempfile
+          from pathlib import Path
+          from tests.mmdb_writer import build_mmdb, city_record
 
-          .\dist\ipinsight.exe --help | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Echec de --help ($LASTEXITCODE)" }
+          exe = Path("dist/ipinsight.exe")
+          assert exe.is_file(), f"Executable introuvable : {exe}"
 
-          .\dist\ipinsight.exe --disclaimer --no-color | Out-Null
-          if ($LASTEXITCODE -ne 0) { throw "Echec de --disclaimer ($LASTEXITCODE)" }
+          def run_exe(*args):
+              proc = subprocess.run(
+                  [str(exe), *args],
+                  capture_output=True,
+                  text=True,
+                  encoding="utf-8",
+                  errors="replace",
+              )
+              return proc
 
-          $jsonRaw = .\dist\ipinsight.exe --ip 192.168.1.1 --json
-          if ($LASTEXITCODE -ne 3) { throw "Code de sortie inattendu pour IP privee : $LASTEXITCODE" }
-          $parsed = $jsonRaw | ConvertFrom-Json
-          if ($parsed.ip_scope -ne "private") { throw "Contenu JSON inattendu : $jsonRaw" }
+          v = run_exe("--version")
+          assert v.returncode == 0, f"--version a echoue ({v.returncode}): {v.stderr}"
+          assert "IPInsight CLI 1.2.0" in v.stdout, v.stdout
+
+          h = run_exe("--help")
+          assert h.returncode == 0, f"--help a echoue ({h.returncode}): {h.stderr}"
+          assert "--rdap" in h.stdout and "--output" in h.stdout
+
+          d = run_exe("--disclaimer", "--no-color")
+          assert d.returncode == 0, f"--disclaimer a echoue ({d.returncode}): {d.stderr}"
+
+          priv = run_exe("--ip", "192.168.1.1", "--json")
+          assert priv.returncode == 3, f"Code inattendu ({priv.returncode}): {priv.stderr}"
+          assert json.loads(priv.stdout)["ip_scope"] == "private"
+
+          with tempfile.TemporaryDirectory() as tmp:
+              mmdb_path = Path(tmp) / "test.mmdb"
+              out_path = Path(tmp) / "report.json"
+              mmdb_path.write_bytes(
+                  build_mmdb(
+                      [("8.8.8.0/24", city_record(48.8566, 2.3522, country="France", iso="FR", city="Paris"))],
+                      database_type="DBIP-City-Lite",
+                  )
+              )
+              off = run_exe("--ip", "8.8.8.8", "--offline", "--mmdb", str(mmdb_path), "--json", "-o", str(out_path))
+              assert off.returncode == 0, f"Offline a echoue ({off.returncode}): {off.stderr}"
+              payload = json.loads(off.stdout)
+              assert payload["city"] == "Paris" and payload["offline"] is True
+              assert json.loads(out_path.read_text(encoding="utf-8"))["city"] == "Paris"
+
+          print("Smoke test ipinsight.exe OK")
+          EOF
 
       - name: Generate SHA-256 checksum
         shell: pwsh
